@@ -1,5 +1,5 @@
-name: astrbot_plugin_pjskct
+name: astrbot_plugin_pjskmenu
 author: bunana417
-description: PJSK角色猜图游戏插件（支持名字+编号格式）
+description: 猜卡面游戏
 version: 1.0.0
 repo_url: https://github.com/banana417/astrbot_plugin_pjskct
