@@ -16,9 +16,10 @@ logger = logging.getLogger("pjskmenu")
 logger.setLevel(logging.INFO)
 @register(
     "pjskmenu",
-    "YourName",
+    "bunana417",
     "初音未来缤纷舞台猜卡面游戏",
     "1.0.0"
+    "https://github.com/banana417/astrbot_plugin_pjskmenu"
 )
 class PJSKMenuGame:
     """猜卡面游戏实例"""
