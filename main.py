@@ -1,286 +1,154 @@
 import os
 import random
-import json
 import asyncio
+import logging
+import json
 from pathlib import Path
-from datetime import datetime
-from typing import Dict, List, Tuple, Optional
-
 from PIL import Image
-import astrbot.api.message_components as Comp
+from datetime import datetime
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
-from astrbot.api import logger
-from astrbot.core.utils.session_waiter import session_waiter, SessionController
+from astrbot.api import logger as ast_logger
+import astrbot.api.message_components as Comp
 
-# 插件注册
-@register(
-    "astrbot_plugin_pjskct",
-    "bunana417",
-    "Project SEKAI 倍率计算插件",
-    "1.0.0",
-    "https://github.com/banana417/astrbot_plugin_pjskct"
-)
-class PJSKGuessGame(Star):
-    def __init__(self, context: Context):
-        super().__init__(context)
-        self.config = self.load_config()
-        self.aliases = self.load_aliases()
-        self.active_games = {}  # 跟踪活跃游戏: {session_id: game_data}
-        
-    def load_config(self) -> dict:
-        """加载插件配置"""
-        default_config = {
-            "image_dir": "/www/dk_project/dk_app/astrbot/astrbot_nrnR/data/guess_images",
-            "crop_size": 150,
-            "max_attempts": 5,
-            "timeout": 60,
-            "alias_file": "aliases.json"
-        }
-        
-        # 尝试从用户配置加载，不存在则使用默认值
-        try:
-            config = {**default_config, **self.context.config}
-            config["crop_size"] = int(config["crop_size"])
-            config["max_attempts"] = int(config["max_attempts"])
-            config["timeout"] = int(config["timeout"])
-            return config
-        except Exception as e:
-            logger.error(f"加载配置失败: {e}")
-            return default_config
-    
-    def load_aliases(self) -> Dict[str, List[str]]:
-        """加载角色别名映射"""
-        alias_file = Path(__file__).parent / self.config["alias_file"]
-        try:
-            if alias_file.exists():
-                with open(alias_file, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            else:
-                # 创建默认别名文件
-                default_aliases = {
-                    "初音未来": ["初音", "miku", "Hatsune Miku", "ミク"],
-                    "镜音铃": ["镜音", "铃", "rin", "リン"],
-                    "镜音连": ["连", "len", "レン"],
-                    "巡音流歌": ["巡音", "luka", "ルカ"],
-                    "MEIKO": ["大姐", "メイコ"],
-                    "KAITO": ["大哥", "カイト"],
-                    "星乃一歌": ["一歌", "Hoshino Ichika"],
-                    "天马咲希": ["咲希", "Tenma Saki"],
-                    "望月穗波": ["穗波", "Mochizuki Honami"],
-                    "日野森志步": ["志步", "Hinomori Shiho"],
-                    "桃井爱莉": ["爱莉", "Momoi Airi"],
-                    "小豆泽心羽": ["心羽", "Kohane"],
-                    "天马司": ["司", "Tenma Tsukasa"],
-                    "凤笑梦": ["笑梦", "Phoenix"],
-                    "草薙宁宁": ["宁宁", "Kusanagi Nene"],
-                    "神代类": ["类", "Kamishiro Rui"],
-                    "宵崎奏": ["奏", "Yoisaki Kanade"],
-                    "朝比奈真冬": ["真冬", "Asahina Mafuyu"],
-                    "东云绘名": ["绘名", "Shinonome Ena"],
-                    "晓山瑞希": ["瑞希", "Hiiragi Mizuki"]
-                }
-                with open(alias_file, "w", encoding="utf-8") as f:
-                    json.dump(default_aliases, f, ensure_ascii=False, indent=2)
-                return default_aliases
-        except Exception as e:
-            logger.error(f"加载别名文件失败: {e}")
-            return {}
-    
-    def get_character_images(self) -> List[Tuple[str, str]]:
-        """获取所有角色图片"""
-        image_dir = Path(self.config["image_dir"])
-        if not image_dir.is_dir():
-            logger.error(f"图片目录不存在: {image_dir}")
-            return []
-        
-        images = []
-        for file in image_dir.glob("*.jpg"):
-            parts = file.stem.split("_")
-            if len(parts) >= 1:
-                character = parts[0]
-                images.append((character, str(file)))
-        return images
-    
-    def get_random_image(self) -> Tuple[Optional[str], Optional[str], Optional[Image.Image]]:
-        """随机选择一张图片"""
-        images = self.get_character_images()
-        if not images:
-            logger.error("没有找到图片")
-            return None, None, None
-            
-        character, image_path = random.choice(images)
-        try:
-            img = Image.open(image_path)
-            return character, image_path, img
-        except Exception as e:
-            logger.error(f"加载图片失败: {e}")
-            return None, None, None
-    
-    def crop_random_region(self, img: Image.Image) -> Image.Image:
-        """随机裁剪图片区域"""
-        width, height = img.size
-        crop_size = self.config["crop_size"]
-        
-        # 确保裁剪尺寸有效
-        crop_size = min(crop_size, width, height)
-        
-        # 随机选择裁剪位置
-        left = random.randint(0, width - crop_size)
-        top = random.randint(0, height - crop_size)
-        
-        return img.crop((left, top, left + crop_size, top + crop_size))
-    
-    def save_cropped_image(self, cropped_img: Image.Image) -> str:
-        """保存裁剪后的图片并返回路径"""
-        output_dir = Path(self.config["image_dir"]) / "cropped"
-        output_dir.mkdir(exist_ok=True)
-        
-        output_path = output_dir / f"cropped_{datetime.now().strftime('%Y%m%d%H%M%S')}.jpg"
-        cropped_img.save(output_path)
-        return str(output_path)
-    
-    def is_correct_answer(self, guess: str, character: str) -> bool:
-        """检查答案是否正确（支持别名）"""
-        # 标准化输入
-        normalized_guess = guess.strip().lower()
-        
-        # 检查直接匹配
-        if normalized_guess == character.lower():
+# 设置日志
+logger = logging.getLogger("pjskmenu")
+logger.setLevel(logging.INFO)
+
+class PJSKMenuGame:
+    """猜卡面游戏实例"""
+    def __init__(self, group_id: str, character: str, image_path: str, crop_path: str):
+        self.group_id = group_id
+        self.character = character
+        self.image_path = image_path
+        self.crop_path = crop_path
+        self.start_time = datetime.now()
+        self.is_active = True
+
+    def is_correct(self, guess: str, aliases: dict) -> bool:
+        """检查答案是否正确"""
+        if guess == self.character:
             return True
-            
-        # 检查别名匹配
-        aliases = self.aliases.get(character, [])
-        for alias in aliases:
-            if normalized_guess == alias.lower():
+        
+        # 检查别名
+        for alias in aliases.get(self.character, []):
+            if guess == alias:
                 return True
-                
+        
         return False
-    
-    @filter.command("猜图")
+
+@register("pjskmenu", "YourName", "初音未来缤纷舞台猜卡面游戏", "1.0.0")
+class PJSKMenuPlugin(Star):
+    def __init__(self, context: Context, config: dict):
+        super().__init__(context)
+        self.config = config
+        self.games = {}  # {group_id: PJSKMenuGame}
+        self.aliases = config.get("answer_aliases", {})
+        self.whitelist = [str(gid) for gid in config.get("group_whitelist", [])]
+        
+        # 创建menu目录
+        self.plugin_dir = Path(__file__).parent.resolve()
+        self.menu_dir = self.plugin_dir / "menu"
+        self.menu_dir.mkdir(exist_ok=True)
+        
+        # 加载卡面图片
+        self.card_images = self.load_card_images()
+        logger.info(f"加载了 {len(self.card_images)} 张卡面图片")
+
+    def load_card_images(self) -> list:
+        """加载所有卡面图片路径"""
+        return [
+            (f.stem, str(f))
+            for f in self.menu_dir.glob("*")
+            if f.is_file() and f.suffix.lower() in [".jpg", ".jpeg", ".png"]
+        ]
+
     async def start_game(self, event: AstrMessageEvent):
-        """开始猜图游戏"""
-        session_id = event.unified_msg_origin
+        """开始新游戏"""
+        group_id = event.get_group_id()
         
-        # 检查是否已有活跃游戏
-        if session_id in self.active_games:
-            yield event.plain_result("你已经在进行一局游戏了！")
+        # 检查是否在白名单
+        if group_id not in self.whitelist:
+            logger.info(f"群 {group_id} 不在白名单中，游戏被拒绝")
+            yield event.plain_result("本群未开通猜卡面游戏功能")
             return
-            
-        # 获取随机图片
-        character, image_path, img = self.get_random_image()
-        if not img:
-            yield event.plain_result("获取图片失败，请稍后再试")
+        
+        # 检查是否已有游戏进行中
+        if group_id in self.games:
+            logger.info(f"群 {group_id} 已有游戏进行中")
+            yield event.plain_result("当前已有游戏在进行中，请稍后再试")
             return
-            
-        # 随机裁剪并保存
-        cropped_img = self.crop_random_region(img)
-        cropped_path = self.save_cropped_image(cropped_img)
         
-        # 保存游戏状态
-        self.active_games[session_id] = {
-            "character": character,
-            "attempts": 0,
-            "max_attempts": self.config["max_attempts"],
-            "start_time": datetime.now(),
-            "image_path": image_path,
-            "cropped_path": cropped_path
-        }
+        # 随机选择卡面
+        if not self.card_images:
+            logger.error("没有可用的卡面图片")
+            yield event.plain_result("游戏资源加载失败，请联系管理员")
+            return
         
-        # 发送裁剪后的图片
-        yield event.image_result(cropped_path)
-        yield event.plain_result(f"猜猜这是哪位角色？发送 /猜+角色名 来回答，例如：/猜 初音未来")
+        character, image_path = random.choice(self.card_images)
         
-        # 启动游戏会话
+        # 创建裁剪图
+        crop_path = await self.create_crop_image(image_path)
+        if not crop_path:
+            yield event.plain_result("图片处理失败，请重试")
+            return
+        
+        # 创建游戏实例
+        game = PJSKMenuGame(group_id, character, image_path, crop_path)
+        self.games[group_id] = game
+        
+        # 发送裁剪图
+        yield event.image_result(crop_path)
+        logger.info(f"群 {group_id} 开始新游戏: {character}")
+        
+        # 设置30秒超时
+        asyncio.create_task(self.game_timeout(group_id))
+
+    async def create_crop_image(self, image_path: str) -> str:
+        """创建裁剪图"""
         try:
-            await self.game_session(event)
-        finally:
-            # 游戏结束清理
-            if session_id in self.active_games:
-                game = self.active_games[session_id]
-                # 删除裁剪图片
-                if game.get("cropped_path") and os.path.exists(game["cropped_path"]):
-                    try:
-                        os.remove(game["cropped_path"])
-                        logger.info(f"已删除裁剪图片: {game['cropped_path']}")
-                    except Exception as e:
-                        logger.error(f"删除裁剪图片失败: {e}")
-                # 移除游戏状态
-                del self.active_games[session_id]
-    
-    @filter.command("猜")
-    async def process_guess(self, event: AstrMessageEvent, guess: str):
-        """处理用户猜测"""
-        session_id = event.unified_msg_origin
-        
-        # 检查是否在游戏中
-        if session_id not in self.active_games:
-            yield event.plain_result("当前没有进行中的游戏，请先发送 /猜图 开始游戏")
-            return
-            
-        game = self.active_games[session_id]
-        game["attempts"] += 1
-        
-        # 检查答案是否正确
-        if self.is_correct_answer(guess, game["character"]):
-            # 发送完整图片
-            yield event.image_result(game["image_path"])
-            yield event.plain_result(f"恭喜你猜对了！正确答案是: {game['character']}")
-            event.stop_event()  # 结束游戏
-            return
-            
-        # 检查尝试次数
-        if game["attempts"] >= game["max_attempts"]:
-            # 发送完整图片
-            yield event.image_result(game["image_path"])
-            yield event.plain_result(f"游戏结束，正确答案是: {game['character']}")
-            event.stop_event()  # 结束游戏
-            return
-            
-        # 猜错只告知用户猜错，不提供其他信息
-        yield event.plain_result("不对哦")
-    
-    async def game_session(self, event: AstrMessageEvent):
-        """游戏会话控制器"""
-        session_id = event.unified_msg_origin
-        
-        @session_waiter(timeout=self.config["timeout"])
-        async def game_waiter(controller: SessionController, event: AstrMessageEvent):
-            # 检查超时
-            game = self.active_games.get(session_id)
-            if not game:
-                controller.stop()
-                return
+            with Image.open(image_path) as img:
+                # 计算正方形裁剪区域（取中心部分）
+                width, height = img.size
+                size = min(width, height)
+                left = (width - size) / 2
+                top = (height - size) / 2
+                right = (width + size) / 2
+                bottom = (height + size) / 2
                 
-            elapsed = (datetime.now() - game["start_time"]).seconds
-            if elapsed >= self.config["timeout"]:
-                # 发送完整图片
-                yield event.image_result(game["image_path"])
-                yield event.plain_result("时间到，游戏结束！")
-                controller.stop()
-        
-        try:
-            await game_waiter(event)
-        except TimeoutError:
-            # 超时异常处理
-            if session_id in self.active_games:
-                game = self.active_games[session_id]
-                # 发送完整图片
-                yield event.image_result(game["image_path"])
-                yield event.plain_result("时间到，游戏结束！")
+                # 裁剪并保存
+                crop_img = img.crop((left, top, right, bottom))
+                crop_path = str(self.menu_dir / f"crop_{os.path.basename(image_path)}")
+                crop_img.save(crop_path)
+                return crop_path
         except Exception as e:
-            logger.error(f"游戏会话错误: {e}")
-    
-    async def terminate(self):
-        """插件卸载时清理资源"""
-        # 清理所有临时裁剪图片
-        output_dir = Path(self.config["image_dir"]) / "cropped"
-        if output_dir.exists():
-            for file in output_dir.glob("*.jpg"):
-                try:
-                    os.remove(file)
-                    logger.info(f"已删除临时图片: {file}")
-                except Exception as e:
-                    logger.error(f"删除临时图片失败: {e}")
+            logger.error(f"图片裁剪失败: {e}")
+            return None
+
+    async def game_timeout(self, group_id: str):
+        """游戏超时处理"""
+        await asyncio.sleep(30)
         
-        logger.info("PJSK猜图插件已卸载")
+        if group_id in self.games and self.games[group_id].is_active:
+            game = self.games[group_id]
+            game.is_active = False
+            
+            # 发送原图
+            if self.context:
+                await self.context.send_message(
+                    unified_msg_origin=f"group_{group_id}",
+                    chain=[Comp.Plain("时间到！正确答案是："), 
+                          Comp.Image.fromFileSystem(game.image_path)]
+                )
+            
+            # 清理游戏
+            del self.games[group_id]
+            logger.info(f"群 {group_id} 游戏超时结束")
+
+    @filter.command("#猜卡面")
+    async def start_game_command(self, event: AstrMessageEvent):
+        """处理#猜卡面命令"""
+        async for result in self.start_game(event):
+            yield result
+
+    @filter.event_mess
