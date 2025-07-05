@@ -14,13 +14,7 @@ import astrbot.api.message_components as Comp
 # 设置日志
 logger = logging.getLogger("pjskmenu")
 logger.setLevel(logging.INFO)
-@register(
-    "pjskmenu",
-    "bunana417",
-    "初音未来缤纷舞台猜卡面游戏",
-    "1.0.0"
-    "https://github.com/banana417/astrbot_plugin_pjskmenu"
-)
+
 class PJSKMenuGame:
     """猜卡面游戏实例"""
     def __init__(self, group_id: str, character: str, image_path: str, crop_path: str):
@@ -43,6 +37,7 @@ class PJSKMenuGame:
         
         return False
 
+@register("pjskmenu", "bunana417", "初音未来缤纷舞台猜卡面游戏", "1.0.0")
 class PJSKMenuPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
