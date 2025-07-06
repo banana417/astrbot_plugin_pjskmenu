@@ -2,16 +2,14 @@ import os
 import random
 import asyncio
 import logging
-import json
 from pathlib import Path
 from PIL import Image
 from datetime import datetime
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
-from astrbot.api import logger as ast_logger
 import astrbot.api.message_components as Comp
 
-# 设置日志
+# 日志配置
 logger = logging.getLogger("pjskmenu")
 logger.setLevel(logging.INFO)
 
@@ -37,7 +35,7 @@ class PJSKMenuGame:
         
         return False
 
-@register("pjskmenu", "bunana417", "初音未来缤纷舞台猜卡面游戏", "1.0.0")
+@register("pjskmenu", "bunan417", "初音未来缤纷舞台猜卡面游戏", "1.0.0")
 class PJSKMenuPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -46,14 +44,14 @@ class PJSKMenuPlugin(Star):
         self.aliases = config.get("answer_aliases", {})
         self.whitelist = [str(gid) for gid in config.get("group_whitelist", [])]
         
-        # 创建menu目录
+        # 创建资源目录
         self.plugin_dir = Path(__file__).parent.resolve()
         self.menu_dir = self.plugin_dir / "menu"
         self.menu_dir.mkdir(exist_ok=True)
         
         # 加载卡面图片
         self.card_images = self.load_card_images()
-        logger.info(f"加载了 {len(self.card_images)} 张卡面图片")
+        logger.info(f"Loaded {len(self.card_images)} card images")
 
     def load_card_images(self) -> list:
         """加载所有卡面图片路径"""
@@ -67,22 +65,31 @@ class PJSKMenuPlugin(Star):
         """开始新游戏"""
         group_id = event.get_group_id()
         
-        # 检查是否在白名单
+        # 白名单验证
         if group_id not in self.whitelist:
-            logger.info(f"群 {group_id} 不在白名单中，游戏被拒绝")
-            yield event.plain_result("本群未开通猜卡面游戏功能")
+            logger.info(f"Group {group_id} not in whitelist")
+            await self.context.send_message(
+                unified_msg_origin=f"group_{group_id}",
+                chain=[Comp.Plain("本群未开通猜卡面游戏功能")]
+            )
             return
         
-        # 检查是否已有游戏进行中
+        # 游戏状态检查
         if group_id in self.games:
-            logger.info(f"群 {group_id} 已有游戏进行中")
-            yield event.plain_result("当前已有游戏在进行中，请稍后再试")
+            logger.info(f"Game already in progress in group {group_id}")
+            await self.context.send_message(
+                unified_msg_origin=f"group_{group_id}",
+                chain=[Comp.Plain("当前已有游戏在进行中，请稍后再试")]
+            )
             return
         
         # 随机选择卡面
         if not self.card_images:
-            logger.error("没有可用的卡面图片")
-            yield event.plain_result("游戏资源加载失败，请联系管理员")
+            logger.error("No card images available")
+            await self.context.send_message(
+                unified_msg_origin=f"group_{group_id}",
+                chain=[Comp.Plain("游戏资源加载失败，请联系管理员")]
+            )
             return
         
         character, image_path = random.choice(self.card_images)
@@ -90,7 +97,10 @@ class PJSKMenuPlugin(Star):
         # 创建裁剪图
         crop_path = await self.create_crop_image(image_path)
         if not crop_path:
-            yield event.plain_result("图片处理失败，请重试")
+            await self.context.send_message(
+                unified_msg_origin=f"group_{group_id}",
+                chain=[Comp.Plain("图片处理失败，请重试")]
+            )
             return
         
         # 创建游戏实例
@@ -98,8 +108,11 @@ class PJSKMenuPlugin(Star):
         self.games[group_id] = game
         
         # 发送裁剪图
-        yield event.image_result(crop_path)
-        logger.info(f"群 {group_id} 开始新游戏: {character}")
+        await self.context.send_message(
+            unified_msg_origin=f"group_{group_id}",
+            chain=[Comp.Image.fromFileSystem(crop_path)]
+        )
+        logger.info(f"Game started in group {group_id} for {character}")
         
         # 设置30秒超时
         asyncio.create_task(self.game_timeout(group_id))
@@ -108,13 +121,13 @@ class PJSKMenuPlugin(Star):
         """创建裁剪图"""
         try:
             with Image.open(image_path) as img:
-                # 计算正方形裁剪区域（取中心部分）
+                # 计算正方形裁剪区域
                 width, height = img.size
                 size = min(width, height)
-                left = (width - size) / 2
-                top = (height - size) / 2
-                right = (width + size) / 2
-                bottom = (height + size) / 2
+                left = (width - size) // 2
+                top = (height - size) // 2
+                right = left + size
+                bottom = top + size
                 
                 # 裁剪并保存
                 crop_img = img.crop((left, top, right, bottom))
@@ -122,7 +135,7 @@ class PJSKMenuPlugin(Star):
                 crop_img.save(crop_path)
                 return crop_path
         except Exception as e:
-            logger.error(f"图片裁剪失败: {e}")
+            logger.error(f"Image cropping failed: {e}")
             return None
 
     async def game_timeout(self, group_id: str):
@@ -133,22 +146,5 @@ class PJSKMenuPlugin(Star):
             game = self.games[group_id]
             game.is_active = False
             
-            # 发送原图
-            if self.context:
-                await self.context.send_message(
-                    unified_msg_origin=f"group_{group_id}",
-                    chain=[Comp.Plain("时间到！正确答案是："), 
-                          Comp.Image.fromFileSystem(game.image_path)]
-                )
-            
-            # 清理游戏
-            del self.games[group_id]
-            logger.info(f"群 {group_id} 游戏超时结束")
-
-    @filter.command("#猜卡面")
-    async def start_game_command(self, event: AstrMessageEvent):
-        """处理#猜卡面命令"""
-        async for result in self.start_game(event):
-            yield result
-
-    @filter.event_mess
+            # 发送答案
+            await self.context.send_messag
