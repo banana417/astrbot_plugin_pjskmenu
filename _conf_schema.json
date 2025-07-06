@@ -1,30 +1,23 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "PJSKMenu Plugin Configuration",
-  "type": "object",
-  "properties": {
     "group_whitelist": {
-      "type": "array",
-      "title": "游戏白名单群组",
-      "description": "允许使用该游戏的群组列表",
-      "items": {
-        "type": "integer"
-      },
-      "default": []
+        "description": "允许玩猜卡面游戏的QQ群号",
+        "type": "list",
+        "items": {
+            "type": "string"
+        },
+        "default": [],
+        "hint": "在此添加允许玩游戏的群号"
     },
     "answer_aliases": {
-      "type": "object",
-      "title": "答案别名",
-      "description": "人物名称的可接受别名",
-      "additionalProperties": {
-        "type": "array",
+        "description": "角色别名映射",
+        "type": "object",
         "items": {
-          "type": "string"
-        }
-      }
+            "type": "list",
+            "items": {
+                "type": "string"
+            }
+        },
+        "default": {},
+        "hint": "角色名: [别名1, 别名2] 格式"
     }
-  },
-  "required": [
-    "group_whitelist"
-  ]
 }
