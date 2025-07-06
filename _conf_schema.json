@@ -1,32 +1,23 @@
 {
-    "image_dir": {
-        "description": "角色图片目录",
-        "type": "string",
-        "default": "/www/dk_project/dk_app/astrbot/astrbot_nrnR/data/guess_images",
-        "hint": "存放PJSK角色图片的目录路径"
+    "group_whitelist": {
+        "description": "允许玩猜卡面游戏的QQ群号",
+        "type": "list",
+        "items": {
+            "type": "string"
+        },
+        "default": [],
+        "hint": "在此添加允许玩游戏的群号"
     },
-    "crop_size": {
-        "description": "裁剪尺寸",
-        "type": "int",
-        "default": 150,
-        "hint": "随机裁剪的正方形边长（像素）"
-    },
-    "max_attempts": {
-        "description": "最大尝试次数",
-        "type": "int",
-        "default": 5,
-        "hint": "用户最多可以猜几次"
-    },
-    "timeout": {
-        "description": "游戏超时时间",
-        "type": "int",
-        "default": 60,
-        "hint": "游戏超时时间（秒）"
-    },
-    "alias_file": {
-        "description": "别名文件",
-        "type": "string",
-        "default": "aliases.json",
-        "hint": "角色别名映射文件"
+    "answer_aliases": {
+        "description": "角色别名映射",
+        "type": "object",
+        "items": {
+            "type": "list",
+            "items": {
+                "type": "string"
+            }
+        },
+        "default": {},
+        "hint": "角色名: [别名1, 别名2] 格式"
     }
 }
